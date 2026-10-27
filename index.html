@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Turbogerador 3D</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f5f4ee;--fg:#2c2c2a;--mut:#5f5e5a;--card:#fff;--bd:#d3d1c7;--ac:#185FA5;--acbg:#E6F1FB}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1f1e1c;--fg:#f1efe8;--mut:#b4b2a9;--card:#2c2c2a;--bd:#5f5e5a;--ac:#85B7EB;--acbg:#0C447C}}
+:root[data-theme="dark"]{--bg:#1f1e1c;--fg:#f1efe8;--mut:#b4b2a9;--card:#2c2c2a;--bd:#5f5e5a;--ac:#85B7EB;--acbg:#0C447C}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+main{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:20px;font-weight:500;margin:0 0 2px}
+.sub{color:var(--mut);font-size:14px;margin:0 0 12px}
+#c{position:relative;width:100%;height:min(60vh,460px);min-height:320px;border:1px solid var(--bd);border-radius:12px;background:var(--card);overflow:hidden;touch-action:none;cursor:grab}
+#c canvas{display:block;width:100%;height:100%}
+#hint{position:absolute;left:10px;bottom:8px;font-size:12px;color:var(--mut);pointer-events:none}
+.ctl{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:10px 0;font-size:14px}
+.ctl label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.ctl input[type=range]{width:150px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 12px}
+.chips button{font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;border:1px solid var(--bd);background:var(--card);color:var(--fg);cursor:pointer}
+.chips button.on{background:var(--acbg);color:var(--ac);border-color:var(--ac)}
+#info{border:1px solid var(--bd);border-radius:12px;background:var(--card);padding:14px 16px}
+#info h2{font-size:17px;font-weight:500;margin:0 0 8px}
+#info p{margin:6px 0;font-size:14px;color:var(--mut)}
+#info b{color:var(--fg);font-weight:500}
+.note{font-size:12px;color:var(--mut);margin-top:10px}
+</style></head><body><main>
+<h1>Turbogerador em 3D</h1>
+<p class="sub">Turbina a vapor, redutor e gerador. Arraste para girar, role para aproximar e clique numa peça.</p>
+<div id="c"><div id="hint">Arraste: girar | Roda ou dois dedos: zoom</div></div>
+<div class="ctl">
+<label><input type="checkbox" id="spin" checked>Girar eixos</label>
+<label><input type="checkbox" id="see" checked>Ver por dentro</label><label><input type="checkbox" id="air">Ventilação</label><label><input type="checkbox" id="tmp">Temperaturas (exemplo)</label><label><input type="checkbox" id="iso">Isolamento térmico</label><label><input type="checkbox" id="cab">Cabine acústica</label>
+<label>Separar peças <input type="range" id="ex" min="0" max="100" value="0"></label>
+</div>
+<div class="chips" id="chips"></div>
+<div id="info"><h2>Clique numa peça</h2><p>Escolha uma peça no modelo ou nos botões acima para ver o que ela faz e valores típicos de operação.</p></div>
+<p class="note">Modelo esquemático e didático, fora de escala. Os valores exibidos são ilustrativos e não representam nenhuma instalação real.</p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+var T=THREE,box=document.getElementById('c');
+var R=new T.WebGLRenderer({antialias:true,alpha:true});R.setPixelRatio(Math.min(devicePixelRatio,2));box.appendChild(R.domElement);
+var S=new T.Scene(),cam=new T.PerspectiveCamera(40,1.6,.1,200);
+S.add(new T.HemisphereLight(0xffffff,0x888888,.95));
+var dl=new T.DirectionalLight(0xffffff,.8);dl.position.set(6,10,8);S.add(dl);
+var gr=new T.GridHelper(26,26,0x888780,0xb4b2a9);gr.position.y=-2.9;gr.material.transparent=true;gr.material.opacity=.4;S.add(gr);
+var P={},MESH=[],MATS=[];
+function part(k,ex){var g=new T.Group();g.userData={k:k,ex:ex};P[k]=g;S.add(g);return g}
+function M(c,casing){var m=new T.MeshStandardMaterial({color:c,roughness:.5,metalness:.35});m.userData.casing=!!casing;MATS.push(m);return m}
+function cy(r,l){return new T.CylinderGeometry(r,r,l,28)}
+function bx(w,h,d){return new T.BoxGeometry(w,h,d)}
+function add(g,geo,mat,x,y,z,ax,sp){
+ var m=new T.Mesh(geo,mat);m.position.set(x,y,z);if(ax)m.rotation.z=Math.PI/2;
+ m.userData.k=g.userData.k;g.add(m);MESH.push(m);
+ if(sp){m.userData.spin=sp;var r=geo.parameters.radiusTop,l=geo.parameters.height;
+  var mk=new T.Mesh(bx(.09,l*.7,.12),new T.MeshBasicMaterial({color:0xffffff}));mk.position.set(r,0,0);m.add(mk)}
+ return m}
+var C={steel:0xa9adb3,tur:0x8CC9A8,st:0xA9DDBF,gear:0x1D9E75,gen:0x378ADD,br:0xEF9F27,oil:0xBA7517,gr:0x888780,bs:0x5F5E5A,dk:0x444441};
+var g;
+g=part('base',[0,-.7,0]);
+add(g,bx(10.8,1.7,4),M(0x1F6FB5),2.8,-2,0);[-6.9,-3.5].forEach(function(x){add(g,bx(1.4,1.7,2.2),M(0x7FBF9E),x,-2,0)});add(g,bx(4.4,1.2,2.2),M(0xB4B2A9),5,-.55,0);
+[-2.6,-.8,1,2.8,4.6,6.4,8.2].forEach(function(x){[-2,2].forEach(function(z){add(g,cy(.03,1.1),M(0xEFB020),x,-.6,z)})});
+[-.05,-.6].forEach(function(y){[-2,2].forEach(function(z){add(g,cy(.03,10.8),M(0xEFB020),2.8,y,z,1)})});
+for(var k=0;k<6;k++)add(g,bx(.4,.1,1.2),M(0x888780),8.5+.4*k,-1.3-.28*k,1);
+add(g,bx(5.4,.08,1.3),M(0x888780),-5.2,-1.19,1.75);[-7.7,-6.4,-5.1,-3.8,-2.7].forEach(function(x){add(g,cy(.03,1.1),M(0xEFB020),x,-.6,2.3)});
+[-.05,-.6].forEach(function(y){add(g,cy(.03,5),M(0xEFB020),-5.2,y,2.3,1)});[-7.3,-3].forEach(function(x){add(g,bx(.5,.7,.35),M(0xD3D1C7),x,-.8,1.6)});
+g=part('turbina',[-1.8,0,0]);
+add(g,bx(2.6,1.15,1.9),M(C.tur,1),-5.2,.675,0);add(g,bx(2.6,1,1.7),M(C.tur,1),-5.2,1.75,0);
+add(g,bx(2.8,.1,2.3),M(C.tur),-5.2,1.25,0);
+for(var i=0;i<8;i++)[-1.05,1.05].forEach(function(z){add(g,cy(.06,.22),M(C.dk),-6.3+i*.3,1.35,z)});
+[-6.2,-4.2].forEach(function(x){[-1.15,1.15].forEach(function(z){add(g,bx(.5,.14,.45),M(C.tur),x,1.2,z)})});
+add(g,cy(.22,4.4),M(C.steel),-4.8,1.25,0,1,-6);
+[[-6.1,.95,.2],[-5.6,.7,.12],[-5.2,.76,.12],[-4.8,.82,.12],[-4.35,.55,.3]].forEach(function(d){add(g,cy(d[1],d[2]),M(C.steel),d[0],1.25,0,1,-6)});
+g=part('mancT',[-1.8,0,0]);add(g,cy(.5,.45),M(C.br),-6.9,1.25,0,1);add(g,cy(.5,.45),M(C.br),-3.5,1.25,0,1);add(g,bx(.9,1.7,1.4),M(0x6BB8A4,1),-6.9,1,0);add(g,bx(.8,1.7,1.4),M(0x6BB8A4,1),-3.5,1,0);
+g=part('valvulas',[-1.8,1.4,0]);
+add(g,bx(2.2,.5,.9),M(C.st),-5.3,2.45,0);
+[-6.3,-5.75,-5.2,-4.65].forEach(function(x){add(g,cy(.2,.9),M(0xA9DDBF),x,2.55,1.5).rotation.x=Math.PI/2;add(g,cy(.06,.6),M(C.steel),x,2.55,.75).rotation.x=Math.PI/2});
+add(g,cy(.2,1.3),M(C.st),-7.05,2.45,0,1);add(g,bx(.6,.7,.6),M(C.tur),-6.9,2.45,0);add(g,cy(.12,.6),M(C.dk),-6.9,3.1,0);
+g=part('escape',[-1.8,-.3,0]);
+add(g,cy(.9,.4),M(C.st),-5.2,-1.35,0);add(g,cy(.55,1),M(C.st),-5.2,-1.9,0);add(g,new T.SphereGeometry(.55,18,14),M(C.st),-5.2,-2.4,0);
+add(g,cy(.55,3.4),M(C.st),-5.2,-2.4,-1.7).rotation.x=Math.PI/2;add(g,cy(.72,.14),M(C.st),-5.2,-2.4,-3.4).rotation.x=Math.PI/2;
+g=part('c1',[-.9,0,0]);add(g,cy(.5,.7),M(C.gr),-2.4,1.25,0,1,-6);[-2.65,-2.15].forEach(function(x){add(g,cy(.62,.06),M(C.steel),x,1.25,0,1,-6)});add(g,cy(.72,.95),M(0xE08A3C,1),-2.4,1.25,0,1);
+g=part('redutor',[0,0,0]);
+add(g,bx(2,3.1,1.6),M(0x6FA8DC,1),0,.45,0);
+add(g,cy(.2,3),M(C.steel),-.7,1.25,0,1,-6);
+[-.15,.15].forEach(function(x,i){add(g,cy(.35,.25),M(C.steel),x,1.25,0,1,-6).rotation.x=i*.5;add(g,cy(.9,.25),M(0x5DCAA5),x,0,0,1,1.8).rotation.x=i*.5});
+add(g,cy(.28,2.8),M(C.steel),.6,0,0,1,1.8);add(g,cy(.38,.5),M(C.oil),1.3,0,0,1,1.8);
+[[-.8,1.25],[.8,1.25],[-.8,0],[.8,0]].forEach(function(p){add(g,cy(.32,.3),M(C.br),p[0],p[1],0,1)});
+g=part('giro',[0,1.2,0]);add(g,cy(.4,.7),M(C.dk),-.6,2.35,0);
+g=part('c2',[.9,0,0]);add(g,cy(.55,.7),M(C.gr),2.05,0,0,1,1.8);add(g,cy(.9,1),M(0xE08A3C,1),2.05,0,0,1);
+g=part('carcaca',[1.8,0,0]);add(g,bx(4,2.5,2.4),M(0xD8D6CE,1),5,1.25,0);add(g,bx(3.6,1.6,2),M(0xD8D6CE,1),5,3.3,0);add(g,bx(3.8,.08,2.3),M(0xB4B2A9),5,2.52,0);
+add(g,bx(.55,.35,.03),M(0x222222),5.7,1.9,1.21);[4.1,5.9].forEach(function(x){add(g,bx(.7,.7,.03),M(0xC9C7BF),x,.9,1.21)});
+g=part('estator',[1.8,0,-2.4]);add(g,cy(1.05,2.6),M(0xC97C3A),5,1.25,0,1);
+g=part('rotor',[1.8,0,2.4]);add(g,cy(.72,2.9),M(0x8b9096),5,1.25,0,1,1.8);add(g,cy(.3,6.2),M(C.steel),5.3,1.25,0,1,1.8);
+g=part('tampas',[1.8,1.6,0]);[[3,1.15,.1,0xD8D6CE],[3.3,.95,.06,0xC9C7BF],[7,1.15,.1,0xD8D6CE],[6.7,.95,.06,0xC9C7BF]].forEach(function(d){add(g,cy(d[1],d[2]),M(d[3]),d[0],1.25,0,1)});
+g=part('excit',[1.8,0,0]);add(g,bx(.9,1.2,1.2),M(0xC9C7BF,1),7.85,1.25,0);add(g,bx(.25,.3,.08),M(0xC9C7BF),7.85,2,0);add(g,cy(.4,.5),M(0xC97C3A),7.85,1.25,0,1,1.8);add(g,bx(1.5,.25,.3),M(0xD8D6CE),7.55,3.3,0);add(g,bx(.25,1.45,.3),M(0xD8D6CE),8.1,2.575,0);
+g=part('caixaL',[1.8,0,1.6]);add(g,bx(1,.9,1),M(C.gr),5,.9,1.7);
+g=part('mancG',[1.8,0,0]);add(g,cy(.5,.4),M(C.br),2.75,0,0,1);add(g,cy(.5,.4),M(C.br),7.2,0,0,1);
+g=part('resf',[1.8,1.6,0]);[4.3,5.7].forEach(function(x){add(g,bx(.6,1.4,1.6),M(0xB4B2A9),x,3.3,0)});
+g=part('oleo',[0,0,1.6]);
+add(g,bx(4.2,1.1,1.8),M(0x9BD3B0),3.6,-.1,3.5);add(g,cy(.22,.06),M(0x9BD3B0),4.4,.48,3.5);[2,5.2].forEach(function(x){add(g,bx(.1,.25,.2),M(0x9BD3B0),x,.55,3)});
+[1.6,5.6].forEach(function(x){[2.8,4.2].forEach(function(z){add(g,cy(.09,.8),M(0x9BD3B0),x,-1.05,z)})});add(g,cy(.33,3.4),M(0xB4B2A9),3.6,-1.05,3.5,1);
+add(g,cy(.3,.6),M(0x2E75B6),2,.85,3.5,1);
+[-4.2,-2.2].forEach(function(x){add(g,cy(.45,1.6),M(0xB4B2A9),x,-1,3.5,1)});
+[-6.6,-5.8].forEach(function(x){add(g,cy(.32,1.1),M(C.br),x,-.9,3.5)});
+add(g,cy(.28,.7),M(0x2E75B6),-.1,-1.1,3,1);add(g,cy(.2,.3),M(0xE08A3C),.4,-1.1,3,1);add(g,cy(.3,.5),M(0x6BB8A4),.8,-1.1,3,1);
+var LN=[],lm=new T.LineBasicMaterial({color:C.oil});
+function ln(a,b){var l=new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(a[0],a[1],a[2]),new T.Vector3(b[0],b[1],b[2])]),lm);S.add(l);LN.push(l)}
+ln([-6.9,-2.4,2.7],[7.2,-2.4,2.7]);
+[[-6.9,0],[-3.5,0],[0,.65],[2.75,1.25],[7.2,1.25]].forEach(function(p){ln([p[0],-2.4,2.7],[p[0],p[1],.5])});
+
+['turbina','mancT','valvulas','c1'].forEach(function(k){P[k].children.forEach(function(m){m.position.y-=1.25})});
+['mancG','c2'].forEach(function(k){P[k].children.forEach(function(m){m.position.y+=1.25})});
+P.redutor.children.forEach(function(m,i){if(i===0){m.scale.y=2.3/3.1;m.position.y=.05}else m.position.y=1.25-m.position.y});
+P.giro.children[0].position.y=2.75;P.oleo.children.forEach(function(m){m.position.y-=1.45});
+var rg=P.redutor;
+var fr=add(rg,new T.CylinderGeometry(.75,1.35,1.4,4),M(0x6FA8DC,1),0,1.9,0);fr.rotation.y=Math.PI/4;fr.scale.z=.85;
+add(rg,bx(2.2,.12,1.8),M(0x5b8fc4),0,.65,0);
+for(var j=0;j<5;j++)[-.85,.85].forEach(function(z){add(rg,cy(.07,.2),M(C.dk),-.8+j*.4,.75,z)});
+add(rg,cy(.08,.5),M(0x6FA8DC),0,2.85,0);[-1,1].forEach(function(x){add(rg,bx(.12,.5,.35),M(0x6FA8DC),x*1.05,1.5,0)});
+var I={
+turbina:["Turbina a vapor", "Transforma a energia do vapor em rotação. O vapor passa por injetores e fileiras de palhetas, expande, perde pressão e temperatura e faz o rotor girar em alta velocidade.", "Turbina de contrapressão de múltiplos estágios, com admissão em torno de 40 bar e 400 °C e escape em pressão útil para o processo. Rotação típica na faixa de 6000 rpm (valores ilustrativos).", "O rotor, a carcaça bipartida e as palhetas trabalham sob alta temperatura e rotação, por isso são acompanhados por vibração, posição axial e temperatura.", "Sondas de vibração, posição axial e temperatura de mancal."],
+valvulas:["Válvulas de vapor", "A válvula de fecho rápido corta todo o vapor numa emergência. As válvulas de controle abrem em etapas e dosam o vapor, regulando velocidade e potência.", "O regulador de velocidade comanda as válvulas por atuadores hidráulicos. A proteção de sobrevelocidade fecha o vapor se a rotação passar do limite de projeto (valores ilustrativos).", "Vapor úmido nas palhetas causa erosão, por isso a temperatura de admissão é vigiada e há peneira de vapor na entrada.", "Posição das válvulas, pressão do óleo de regulagem."],
+escape:["Escape de vapor", "Leva o vapor já expandido até a rede de contrapressão ou o processo.", "Pressão e temperatura de escape bem menores que as de admissão. O flange de escape é muito maior que o de entrada, porque vapor de baixa pressão ocupa muito volume.", "Pressão e temperatura de escape costumam ter alarme e trip na proteção da turbina.", "Transmissores de pressão e temperatura de escape."],
+mancT:["Mancais da turbina", "Os radiais sustentam o eixo. O de escora (axial) segura o empuxo do vapor sobre o rotor. Trabalham sobre um filme de óleo, sem contato metal com metal.", "Monitoramento de vibração, posição axial e temperatura de metal nos mancais. Os limites de alarme e trip seguem a norma e o fabricante.", "Sem óleo o mancal falha em segundos, por isso a lubrificação tem bombas reserva.", "Sondas de vibração, posição axial e PT100 nos mancais."],
+c1:["Acoplamento turbina-redutor", "Une o eixo da turbina ao pinhão do redutor, transmite o torque e absorve pequenos desalinhamentos e a dilatação térmica. A cobertura protege as pessoas.", "Em alta rotação costuma-se usar acoplamento de lâminas, flexível e sem lubrificação, com proteção conforme a NR-12.", "Desalinhamento é uma causa comum de vibração.", ""],
+redutor:["Redutor de velocidade", "A turbina é rápida e o gerador precisa de rotação menor e fixa para gerar 60 Hz. Um pinhão pequeno (rápido) engrena numa roda grande (lenta). Repare que os eixos giram em sentidos opostos.", "Redução típica de cerca de 6000 para 1800 rpm. Engrenagens bi-helicoidais, mancais de deslizamento e óleo lubrificante dedicado (valores ilustrativos).", "Os eixos ficam em alturas diferentes justamente por causa do engrenamento.", "Temperatura dos mancais dos eixos de alta e de baixa, vibração."],
+giro:["Giro lento", "Motor elétrico que gira o eixo devagar com a máquina parada, para o rotor não empenar por aquecimento ou resfriamento desigual.", "Liga em rotação muito baixa e desliga sozinho quando a máquina acelera, com bloqueios por baixa lubrificação.", "Um eixo quente e parado deforma por diferença de temperatura e gera vibração forte na partida.", ""],
+c2:["Acoplamento redutor-gerador", "Liga a saída do redutor ao gerador. O tipo engrenagens transmite torque alto e tolera pequenos desalinhamentos.", "Rotação de saída típica de 1800 rpm. Também tem cobertura de proteção conforme a NR-12.", "O sentido de giro do gerador é definido no projeto e conferido na partida.", ""],
+gerador:["Gerador síncrono", "O rotor recebe corrente contínua (excitação) e vira um ímã girante, que induz tensão alternada no estator. A rotação define a frequência, a excitação define a tensão e o vapor define a potência.", "Gerador de 4 polos a 1800 rpm e 60 Hz, na faixa de 30 MVA e cerca de 13,8 kV (valores ilustrativos).", "A excitatriz fica na ponta do eixo, oposta ao redutor.", "Temperatura do estator, corrente e tensão de excitação."],
+carcaca:["Carcaça do gerador", "Caixa de aço soldada que sustenta o estator e forma a câmara de ar. A parte de cima abriga os resfriadores; embaixo ficam as vigas de apoio. Tem olhais de içamento no topo.", "Corpo retangular de chapas parafusadas, com tampas de inspeção e cobertura superior mais estreita (modelo esquemático).", "Ela guia o ar em circuito fechado (botão Ventilação).", ""],
+estator:["Estator", "Pacote de chapas com enrolamento de cobre onde nasce a tensão alternada de saída. É a parte que mais esquenta.", "Duas sondas de temperatura por fase (R, S e T). Valores de operação típicos entre 70 e 90 °C (ilustrativo).", "Sensores de temperatura embutidos protegem o enrolamento.", "Sensores de temperatura do enrolamento."],
+rotor:["Rotor completo", "Eixo com o rotor de campo, que recebe corrente contínua da excitatriz e vira um ímã girante. Gira a 1800 rpm.", "Corrente de excitação da ordem de alguns ampères (ilustrativo).", "Ao separar as peças, o rotor sai para a frente da máquina.", ""],
+tampas:["Tampas e defletoras", "As tampas fecham as pontas da carcaça e sustentam os mancais. As defletoras (discos claros) orientam o ar nas pontas do estator.", "Tampa e defletora dianteiras e traseiras, com mancal dianteiro e traseiro.", "", ""],
+excit:["Excitatriz e duto de ar", "Gera a corrente contínua do campo, na ponta traseira do eixo. Fica numa caixa própria, resfriada por ar frio que vem por um duto da câmara dos resfriadores.", "Caixa retangular na ponta do eixo, com olhal de içamento e duto em L vindo da câmara de cima (modelo esquemático).", "Fica na ponta oposta ao acoplamento.", ""],
+caixaL:["Caixa de ligação principal", "Onde os cabos de força do estator saem do gerador em direção ao disjuntor.", "Fica na lateral da carcaça.", "O disjuntor do gerador faz a conexão com a rede elétrica.", ""],
+mancG:["Mancais do gerador", "Sustentam o rotor: um no lado do acionamento (L.A) e outro no lado oposto (L.N.A).", "Vibração e temperatura monitoradas, com alarme e trip conforme norma e fabricante.", "O rotor do gerador é pesado, então esses mancais são grandes.", "Sondas de vibração e PT100."],
+resf:["Resfriadores de ar (dois)", "Dois trocadores ar-água na parte alta. O ar quente que sobe do estator cede calor à água e desce frio pelas laterais até as pontas, em circuito fechado.", "Ar frio em torno de 40 °C e ar quente em torno de 60 °C (ilustrativo).", "Ligue Ventilação: laranja sobe (quente) e azul desce (frio). Se o ar não esfria, a temperatura do estator sobe.", "Temperatura do ar frio e do ar quente."],
+oleo:["Sistema de óleo", "Lubrifica e resfria os mancais e alimenta o óleo de regulagem: tanque, bombas, resfriador, filtro, mancais e retorno.", "Tanque com resistência de aquecimento, bomba principal acoplada ao redutor, bomba auxiliar elétrica, bomba de emergência em corrente contínua, bomba de elevação do eixo, exaustor de névoa, resfriador e filtro duplos.", "A auxiliar entra se a pressão cair e a de emergência atua com lubrificação muito baixa. As linhas amarelas mostram o óleo indo aos mancais (somem ao separar as peças).", "Nível e temperatura do tanque, pressão de lubrificação e de regulagem."],
+base:["Base e estrutura", "A placa-base e os apoios mantêm turbina, redutor e gerador alinhados. A turbina dilata com o calor, então seus apoios têm guias que deixam o casco deslizar sem perder o alinhamento.", "Estrutura em aço soldado, com parafusos de fixação. Vibração avaliada por norma (por exemplo, ISO 10816).", "Alinhamento ruim aparece como vibração nos mancais.", ""]};
+var order=['turbina','valvulas','escape','mancT','c1','redutor','giro','c2','carcaca','estator','rotor','tampas','excit','caixaL','mancG','resf','oleo','base'];
+var sel=null,chips=document.getElementById('chips');
+order.forEach(function(k){var b=document.createElement('button');b.textContent=I[k][0].replace(/ \(.*\)/,'');b.id='b_'+k;b.onclick=function(){pick(k)};chips.appendChild(b)});
+function pick(k){sel=k;
+ MESH.forEach(function(m){m.material.emissive.setHex(m.userData.k===k?0x664400:0)});
+ order.forEach(function(o){document.getElementById('b_'+o).className=o===k?'on':''});
+ var d=I[k];document.getElementById('info').innerHTML='<h2>'+d[0]+'</h2><p><b>O que faz:</b> '+d[1]+'</p><p><b>Valores típicos:</b> '+d[2]+'</p><p><b>Curiosidade:</b> '+d[3]+'</p>'+(d[4]?'<p><b>Instrumentos:</b> '+d[4]+'</p>':'')}
+var seeEl=document.getElementById('see'),exEl=document.getElementById('ex'),spEl=document.getElementById('spin');
+function applySee(){var t=seeEl.checked;MATS.forEach(function(m){if(m.userData.casing){m.transparent=t;m.opacity=t?.28:1;m.depthWrite=!t;m.needsUpdate=true}})}
+seeEl.onchange=applySee;applySee();
+function applyEx(){var f=exEl.value/100;for(var k in P){var e=P[k].userData.ex;P[k].position.set(e[0]*f,e[1]*f,e[2]*f)}LN.forEach(function(l){l.visible=f===0});applyAir()}
+exEl.oninput=applyEx;
+var AIR=new T.Group(),TG=new T.Group();S.add(AIR);S.add(TG);AIR.visible=TG.visible=false;
+function ar(x,z,c,v){var m=new T.Mesh(new T.ConeGeometry(.12,.35,10),new T.MeshBasicMaterial({color:c}));m.position.set(x,1.6+Math.random()*2,z);if(v<0)m.rotation.x=Math.PI;m.userData.v=v;AIR.add(m)}
+[4.3,5,5.7].forEach(function(x){[-.5,.5].forEach(function(z){ar(x,z,0xEF7B3A,1);ar(x,z,0xEF7B3A,1)})});
+[3.35,6.65].forEach(function(x){[-.7,.7].forEach(function(z){ar(x,z,0x4AA8E8,-1);ar(x,z,0x4AA8E8,-1)})});
+function tag(t,x,y,z){var c=document.createElement('canvas');c.width=320;c.height=64;var q=c.getContext('2d');q.fillStyle='#111';q.fillRect(0,0,320,64);q.fillStyle='#fff';q.font='bold 30px sans-serif';q.textAlign='center';q.fillText(t,160,44);var sp=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(c),depthTest:false}));sp.scale.set(2,.4,1);sp.position.set(x,y,z);TG.add(sp)}
+tag('Estator ~80 °C',5,2.9,1.6);tag('Ar frio ~40 °C',3.8,4.8,0);tag('Ar quente ~60 °C',6.3,4.8,0);tag('Óleo ~45 °C',3.6,-.4,3.5);tag('Mancais turbina ~55 °C',-6,2,1.3);tag('Mancais redutor ~60 °C',0,3.6,0);tag('Turbina ~6000 rpm',-4.2,-1.7,-3.8);
+var airEl=document.getElementById('air'),tmpEl=document.getElementById('tmp');
+var INS=new T.Group(),isoEl=document.getElementById('iso');S.add(INS);INS.visible=false;
+(function(){var m=new T.MeshStandardMaterial({color:0x9a9a94,roughness:1});[[2.9,2.3,2.2,-5.2,0,0],[2.4,.7,1.1,-5.3,1.2,0],[1.9,.7,1.9,-5.2,-1.35,0]].forEach(function(a){var b=new T.Mesh(bx(a[0],a[1],a[2]),m);b.position.set(a[3],a[4],a[5]);INS.add(b)})})();
+var CAB=new T.Group(),cabEl=document.getElementById('cab');S.add(CAB);CAB.visible=false;
+(function(){var m=new T.MeshStandardMaterial({color:0x9FD8B8,transparent:true,opacity:.2,depthWrite:false,side:T.DoubleSide});[[10,4.6,4.4,-3.4,1.15,0],[7.2,5.85,4.4,5.2,1.78,0]].forEach(function(a){var q=bx(a[0],a[1],a[2]),b=new T.Mesh(q,m),e=new T.LineSegments(new T.EdgesGeometry(q),new T.LineBasicMaterial({color:0x3B6D11}));b.position.set(a[3],a[4],a[5]);e.position.copy(b.position);CAB.add(b);CAB.add(e)})})();
+function applyAir(){var z=exEl.value==0;AIR.visible=airEl.checked&&z;TG.visible=tmpEl.checked&&z;INS.visible=isoEl.checked&&z;CAB.visible=cabEl.checked&&z}
+airEl.onchange=tmpEl.onchange=isoEl.onchange=cabEl.onchange=applyAir;
+var th=.55,ph=1.15,d=19,tg=new T.Vector3(0,.3,0);
+function place(){cam.position.set(tg.x+d*Math.sin(ph)*Math.sin(th),tg.y+d*Math.cos(ph),tg.z+d*Math.sin(ph)*Math.cos(th));cam.lookAt(tg)}
+function size(){var w=box.clientWidth,h=box.clientHeight;R.setSize(w,h);var a=w/h;if(a!==cam.aspect){cam.aspect=a;cam.updateProjectionMatrix()}}
+new ResizeObserver(size).observe(box);size();d=19*Math.max(1,1.7/cam.aspect);place();
+var ptr={},moved=0,pd=0;
+box.addEventListener('pointerdown',function(e){box.setPointerCapture(e.pointerId);ptr[e.pointerId]=[e.clientX,e.clientY];moved=0;pd=0});
+box.addEventListener('pointermove',function(e){var p=ptr[e.pointerId];if(!p)return;var ids=Object.keys(ptr);
+ if(ids.length===2){var o=ptr[ids.find(function(i){return +i!==e.pointerId})];var nd=Math.hypot(e.clientX-o[0],e.clientY-o[1]);if(pd){d=Math.min(45,Math.max(7,d*pd/nd))}pd=nd;moved=99}
+ else{var dx=e.clientX-p[0],dy=e.clientY-p[1];moved+=Math.abs(dx)+Math.abs(dy);th-=dx*.008;ph=Math.min(1.75,Math.max(.15,ph-dy*.008))}
+ ptr[e.pointerId]=[e.clientX,e.clientY];place()});
+box.addEventListener('pointerup',function(e){delete ptr[e.pointerId];if(moved<6)click(e)});
+box.addEventListener('pointercancel',function(e){delete ptr[e.pointerId]});
+box.addEventListener('wheel',function(e){e.preventDefault();d=Math.min(45,Math.max(7,d*(1+Math.sign(e.deltaY)*.08)));place()},{passive:false});
+var ray=new T.Raycaster(),v=new T.Vector2();
+function click(e){var r=box.getBoundingClientRect();v.set((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height)*2+1);ray.setFromCamera(v,cam);
+ var h=ray.intersectObjects(MESH);if(!h.length)return;var pick0=h[0];
+ if(seeEl.checked){var i=h.find(function(x){return !x.object.material.userData.casing});if(i)pick0=i}
+ pick(pick0.object.userData.k)}
+var last=performance.now();
+function loop(t){var dt=Math.min(.05,(t-last)/1000);last=t;
+ if(spEl.checked)MESH.forEach(function(m){if(m.userData.spin)m.rotation.x+=m.userData.spin*dt});
+ if(AIR.visible)AIR.children.forEach(function(m){m.position.y+=m.userData.v*dt;if(m.userData.v>0&&m.position.y>3.9)m.position.y=1.5;if(m.userData.v<0&&m.position.y<1.5)m.position.y=3.9});R.render(S,cam);requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script></body></html>
